@@ -12,7 +12,7 @@ import {
 } from '../api'
 import PdfPreview from '../components/PdfPreview'
 import StarRating from '../components/StarRating'
-import { normalizeTitle } from '../utils/bookGrouping'
+import { normalizeTitle, authorsCompatible } from '../utils/bookGrouping'
 
 export default function BookDetail() {
   const { id } = useParams()
@@ -41,11 +41,10 @@ export default function BookDetail() {
       .then(({ data }) => {
         if (cancelled) return
         const nt = normalizeTitle(book.title)
-        const na = normalizeTitle(book.author)
         const sibs = (data.books || []).filter(b =>
           b.id !== book.id &&
           normalizeTitle(b.title) === nt &&
-          normalizeTitle(b.author) === na
+          authorsCompatible(b.author, book.author)
         )
         setSiblings(sibs)
       })

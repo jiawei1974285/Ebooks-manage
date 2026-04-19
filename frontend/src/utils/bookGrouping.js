@@ -12,9 +12,30 @@ export function normalizeTitle(s) {
 }
 
 export function groupKey(book) {
-  const t = normalizeTitle(book.title)
-  const a = normalizeTitle(book.author)
-  return `${t}|${a}`
+  // Group primarily by normalized title. Author differences (e.g. "李国文" vs
+  // "李国文 & 姚雪垠 & ...") often reflect metadata inconsistency between the
+  // PDF and EPUB versions of the *same* book, so we don't key on author here.
+  // Disambiguation of genuinely-different books that share a title is handled
+  // inside groupBooks via author-token overlap.
+  return normalizeTitle(book.title)
+}
+
+// Split an author string into normalized tokens. Handles common separators
+// (& , ，; ；、/ and whitespace).
+function authorTokens(s) {
+  const n = normalizeTitle(s)
+  if (!n) return []
+  return n.split(/[\s,;&/]+/).filter(Boolean)
+}
+
+// Two books with the same title belong to the same logical book when either
+// side has no author, or their author-token sets share at least one token.
+export function authorsCompatible(a, b) {
+  const ta = authorTokens(a)
+  const tb = authorTokens(b)
+  if (ta.length === 0 || tb.length === 0) return true
+  const sa = new Set(ta)
+  return tb.some(t => sa.has(t))
 }
 
 // Rank helper: pick the most "processed" book as the group's primary card.
@@ -30,25 +51,37 @@ function scoreBook(b) {
 }
 
 export function groupBooks(books) {
-  const map = new Map()
-  const order = []
+  // Buckets keyed by normalized title; each bucket may contain multiple
+  // author-incompatible sub-groups for edge cases like unrelated books
+  // that happen to share a title.
+  const buckets = new Map()  // key -> Array<{ primary, members }>
+  const order = []           // preserves first-seen order across buckets
+
   for (const b of books) {
     const key = groupKey(b)
-    if (!map.has(key)) {
-      map.set(key, { key, primary: b, members: [b] })
+    if (!buckets.has(key)) {
+      buckets.set(key, [])
       order.push(key)
+    }
+    const subs = buckets.get(key)
+    // Find a compatible subgroup (shares ≥1 author token, or either side empty)
+    const sub = subs.find(s => s.members.some(m => authorsCompatible(m.author, b.author)))
+    if (sub) {
+      sub.members.push(b)
+      if (scoreBook(b) > scoreBook(sub.primary)) sub.primary = b
     } else {
-      const g = map.get(key)
-      g.members.push(b)
-      if (scoreBook(b) > scoreBook(g.primary)) g.primary = b
+      subs.push({ primary: b, members: [b] })
     }
   }
-  // Return groups with siblings = members minus primary
-  return order.map(k => {
-    const g = map.get(k)
-    const siblings = g.members.filter(b => b.id !== g.primary.id)
-    return { key: g.key, primary: g.primary, siblings, members: g.members }
-  })
+
+  const groups = []
+  for (const key of order) {
+    for (const g of buckets.get(key)) {
+      const siblings = g.members.filter(b => b.id !== g.primary.id)
+      groups.push({ key, primary: g.primary, siblings, members: g.members })
+    }
+  }
+  return groups
 }
 
 // Given a flat selection (set of primary ids) and the current groups, expand

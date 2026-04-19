@@ -17,6 +17,9 @@
 !/LICENSE
 !/install.bat
 !/start.bat
+!/stop.bat
+!/start.sh
+!/stop.sh
 
 # ═══════════════════════════════════════════════════════════
 # Backend (Python)
