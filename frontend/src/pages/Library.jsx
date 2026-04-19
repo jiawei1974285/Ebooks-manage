@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import { groupBooks, expandSelectionWithSiblings } from '../utils/bookGrouping'
 import { useSearchParams } from 'react-router-dom'
 import {
   Search, FolderOpen, RefreshCw, X, ArrowDownAZ, Sparkles, Tag, Hash, Loader2, ChevronDown,
@@ -130,7 +131,8 @@ export default function Library({ scope = 'public' }) {
     setSelected(prev => {
       const next = new Set(prev)
       if (e?.shiftKey && lastClickedId.current != null) {
-        const ids = books.map(b => b.id)
+        // Range-select across visible (grouped) cards, using their primary ids
+        const ids = groups.map(g => g.primary.id)
         const a = ids.indexOf(lastClickedId.current)
         const b = ids.indexOf(id)
         if (a >= 0 && b >= 0) {
@@ -149,7 +151,7 @@ export default function Library({ scope = 'public' }) {
 
   function runBatch(action) {
     setBatchResult(null); setBatchOpen(false)
-    const book_ids = selected.size > 0 ? [...selected] : undefined
+    const book_ids = selected.size > 0 ? expandSelectionWithSiblings(selected, groups) : undefined
     startBatch(batchStreamUrl(action, book_ids), {
       onDone: (res) => { setBatchResult(res); loadBooks(); loadCategories(); loadTags() },
     })
@@ -163,8 +165,13 @@ export default function Library({ scope = 'public' }) {
   }
 
   async function bulkDelete() {
-    if (!confirm(`从书库移除 ${selected.size} 本书？（不会删除文件）`)) return
-    for (const id of selected) { try { await deleteBook(id) } catch {} }
+    const ids = expandSelectionWithSiblings(selected, groups)
+    const extra = ids.length - selected.size
+    const msg = extra > 0
+      ? `从书库移除 ${selected.size} 本书（含 ${extra} 个同名其他格式版本，共 ${ids.length} 条）？（不会删除文件）`
+      : `从书库移除 ${selected.size} 本书？（不会删除文件）`
+    if (!confirm(msg)) return
+    for (const id of ids) { try { await deleteBook(id) } catch {} }
     setSelected(new Set()); loadBooks(); loadCategories()
   }
 
@@ -211,6 +218,8 @@ export default function Library({ scope = 'public' }) {
 
   const totalPages = Math.ceil(total / PAGE_SIZE)
   const selectMode = selected.size > 0
+  const groups = useMemo(() => groupBooks(books), [books])
+  const mergedCount = books.length - groups.length
 
   return (
     <DropZone onDone={() => { loadBooks(); loadCategories() }}>
@@ -460,20 +469,26 @@ export default function Library({ scope = 'public' }) {
             </div>
           ) : view === 'list' ? (
             <div className="space-y-1.5">
-              {books.map((book) => (
-                <BookCard key={book.id} book={book} view="list"
-                  selectable selected={selected.has(book.id)}
+              {groups.map((g) => (
+                <BookCard key={g.primary.id} book={g.primary} siblings={g.siblings} view="list"
+                  selectable selected={selected.has(g.primary.id)}
                   onToggleSelect={toggleSelect} />
               ))}
             </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-              {books.map((book) => (
-                <BookCard key={book.id} book={book} view="grid"
-                  selectable selected={selected.has(book.id)}
+              {groups.map((g) => (
+                <BookCard key={g.primary.id} book={g.primary} siblings={g.siblings} view="grid"
+                  selectable selected={selected.has(g.primary.id)}
                   onToggleSelect={toggleSelect} />
               ))}
             </div>
+          )}
+
+          {mergedCount > 0 && (
+            <p className="text-xs text-faint text-center mt-3">
+              已合并 {mergedCount} 个同名不同格式的版本（显示 {groups.length} / {books.length}）
+            </p>
           )}
 
           {!query && totalPages > 1 && (

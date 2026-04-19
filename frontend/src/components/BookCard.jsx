@@ -3,10 +3,21 @@ import { FileText, Check, BookMarked, ScanLine } from 'lucide-react'
 import { useState } from 'react'
 import StarRating from './StarRating'
 
-export default function BookCard({ book, selectable, selected, onToggleSelect, view = 'grid' }) {
+export default function BookCard({ book, siblings = [], selectable, selected, onToggleSelect, view = 'grid' }) {
   const navigate = useNavigate()
   const [imgLoaded, setImgLoaded] = useState(false)
   const [imgError, setImgError] = useState(false)
+
+  // All formats available for this logical book (primary + siblings), deduplicated
+  const allFormats = (() => {
+    const seen = new Map()
+    for (const b of [book, ...siblings]) {
+      const f = (b.file_format || '').toUpperCase()
+      if (f && !seen.has(f)) seen.set(f, b.id)
+    }
+    return [...seen.entries()].map(([fmt, id]) => ({ fmt, id }))
+  })()
+  const hasSiblings = siblings.length > 0
 
   function handleClick(e) {
     if (selectable && (e.ctrlKey || e.metaKey || e.shiftKey)) {
@@ -21,7 +32,8 @@ export default function BookCard({ book, selectable, selected, onToggleSelect, v
     navigate(`/books/${book.id}`)
   }
 
-  if (view === 'list') return <BookRow book={book} selectable={selectable} selected={selected}
+  if (view === 'list') return <BookRow book={book} siblings={siblings} allFormats={allFormats}
+    selectable={selectable} selected={selected}
     onToggleSelect={onToggleSelect} onOpen={handleClick} />
 
   return (
@@ -86,7 +98,25 @@ export default function BookCard({ book, selectable, selected, onToggleSelect, v
         <h3 className="font-semibold text-sm leading-snug line-clamp-2">{book.title}</h3>
         <p className="text-xs text-muted mt-1 truncate">{book.author || '未知作者'}</p>
         <div className="flex items-center gap-1.5 mt-2 flex-wrap">
-          <span className="chip-gray uppercase">{book.file_format}</span>
+          {hasSiblings ? (
+            <span className="inline-flex items-center gap-0.5" title={`共 ${allFormats.length} 种格式`}>
+              {allFormats.map(({ fmt, id }) => (
+                <button
+                  key={fmt}
+                  onClick={(e) => { e.stopPropagation(); navigate(`/books/${id}`) }}
+                  className="chip-gray uppercase text-[10px] px-1.5"
+                  style={fmt === book.file_format
+                    ? { background: 'var(--accent-soft)', color: 'var(--accent)' }
+                    : undefined}
+                  title={`打开 ${fmt} 版本`}
+                >
+                  {fmt}
+                </button>
+              ))}
+            </span>
+          ) : (
+            <span className="chip-gray uppercase">{book.file_format}</span>
+          )}
           {book.categories?.[0] && <span className="chip truncate">{book.categories[0]}</span>}
           {book.indexed && <span className="chip-gray" title="已建立全文索引">📖</span>}
           {book.mineru_parsed && (
@@ -114,8 +144,10 @@ export default function BookCard({ book, selectable, selected, onToggleSelect, v
   )
 }
 
-function BookRow({ book, selectable, selected, onToggleSelect, onOpen }) {
+function BookRow({ book, siblings = [], allFormats, selectable, selected, onToggleSelect, onOpen }) {
+  const navigate = useNavigate()
   const [imgError, setImgError] = useState(false)
+  const hasSiblings = siblings.length > 0
   return (
     <div
       onClick={onOpen}
@@ -160,7 +192,25 @@ function BookRow({ book, selectable, selected, onToggleSelect, onOpen }) {
         {book.page_count ? `${book.page_count} 页` : '—'}
       </div>
       <div className="w-24"><StarRating value={book.rating} size={12} showZero /></div>
-      <span className="chip-gray uppercase text-[10px] shrink-0">{book.file_format}</span>
+      {hasSiblings && allFormats ? (
+        <span className="inline-flex items-center gap-0.5 shrink-0">
+          {allFormats.map(({ fmt, id }) => (
+            <button
+              key={fmt}
+              onClick={(e) => { e.stopPropagation(); navigate(`/books/${id}`) }}
+              className="chip-gray uppercase text-[10px] px-1.5"
+              style={fmt === book.file_format
+                ? { background: 'var(--accent-soft)', color: 'var(--accent)' }
+                : undefined}
+              title={`打开 ${fmt} 版本`}
+            >
+              {fmt}
+            </button>
+          ))}
+        </span>
+      ) : (
+        <span className="chip-gray uppercase text-[10px] shrink-0">{book.file_format}</span>
+      )}
       {book.reading_progress > 0 && (
         <div className="w-20 hidden md:block">
           <div className="h-1 rounded-full overflow-hidden" style={{ background: 'var(--bg-hover)' }}>

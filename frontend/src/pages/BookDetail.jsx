@@ -8,9 +8,11 @@ import {
 import {
   getBook, generateSummary, classifyBook, embedBook, updateBook, deleteBook, indexBook,
   getCategoriesConfig, mineruParse, bookFileUrl, openBookLocal, autoTagBook,
+  getBooks,
 } from '../api'
 import PdfPreview from '../components/PdfPreview'
 import StarRating from '../components/StarRating'
+import { normalizeTitle } from '../utils/bookGrouping'
 
 export default function BookDetail() {
   const { id } = useParams()
@@ -23,11 +25,33 @@ export default function BookDetail() {
   const [previewing, setPreviewing] = useState(false)
   const [allCategories, setAllCategories] = useState([])
   const [addingCategory, setAddingCategory] = useState(false)
+  const [siblings, setSiblings] = useState([])  // same title/author, different format
 
   useEffect(() => {
+    setLoading(true)
     getBook(id).then(({ data }) => { setBook(data); setLoading(false) })
     getCategoriesConfig().then(({ data }) => setAllCategories(data.categories || [])).catch(() => {})
   }, [id])
+
+  // Fetch sibling versions (same title, different format) using the books API's q filter
+  useEffect(() => {
+    if (!book?.title) { setSiblings([]); return }
+    let cancelled = false
+    getBooks({ q: book.title, page_size: 50, scope: book.is_private ? 'all' : 'public' })
+      .then(({ data }) => {
+        if (cancelled) return
+        const nt = normalizeTitle(book.title)
+        const na = normalizeTitle(book.author)
+        const sibs = (data.books || []).filter(b =>
+          b.id !== book.id &&
+          normalizeTitle(b.title) === nt &&
+          normalizeTitle(b.author) === na
+        )
+        setSiblings(sibs)
+      })
+      .catch(() => setSiblings([]))
+    return () => { cancelled = true }
+  }, [book?.id, book?.title, book?.author, book?.is_private])
 
   async function run(key, fn, update) {
     setBusy(b => ({ ...b, [key]: true }))
@@ -212,8 +236,33 @@ export default function BookDetail() {
               onSave={(v) => saveField('language', v)} />
             <MetaRow icon={<BookOpen size={14} />} label="页数">{book.page_count || '-'}</MetaRow>
             <MetaRow icon={<FileText size={14} />} label="格式">
-              <span className="inline-flex items-center gap-2">
-                {book.file_format}
+              <span className="inline-flex items-center gap-2 flex-wrap">
+                {siblings.length > 0 ? (
+                  <span className="inline-flex items-center gap-1">
+                    <span
+                      className="chip uppercase text-[11px]"
+                      style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}
+                      title="当前查看的版本"
+                    >
+                      {book.file_format}
+                    </span>
+                    {siblings.map(s => (
+                      <button
+                        key={s.id}
+                        onClick={() => navigate(`/books/${s.id}`)}
+                        className="chip-gray uppercase text-[11px] hover:opacity-80"
+                        title={`切换到 ${s.file_format} 版本`}
+                      >
+                        {s.file_format}
+                      </button>
+                    ))}
+                    <span className="text-[10px] text-faint ml-1">
+                      （共 {siblings.length + 1} 种格式）
+                    </span>
+                  </span>
+                ) : (
+                  <span>{book.file_format}</span>
+                )}
                 {book.mineru_parsed && (
                   <span className="chip inline-flex items-center gap-0.5" title="已用 MinerU OCR 解析">
                     <ScanLine size={10} /> MinerU

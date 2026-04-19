@@ -52,62 +52,63 @@ function Shell() {
   }
 
   return (
-    <div className="flex h-screen overflow-hidden" style={{ background: 'var(--bg)', color: 'var(--text)' }}>
+    <div className="flex flex-col h-screen overflow-hidden" style={{ background: 'var(--bg)', color: 'var(--text)' }}>
       <style>{`
         .active-nav { background: var(--accent); color: white; }
         .nav-link { color: var(--text-muted); }
         .nav-link:hover { color: var(--text); background: var(--bg-hover); }
       `}</style>
 
-      <aside
-        className="w-52 flex flex-col py-6 px-3 gap-1 shrink-0 border-r"
+      <header
+        className="flex items-center gap-1 px-4 h-14 shrink-0 border-b"
         style={{ background: 'var(--bg-panel)', borderColor: 'var(--border)' }}
       >
-        <div className="px-3 mb-6">
-          <h1 className="text-lg font-bold tracking-tight" style={{ color: 'var(--accent)' }}>📚 书库</h1>
-          <p className="text-xs mt-0.5" style={{ color: 'var(--text-faint)' }}>电子书管理系统</p>
+        <div className="flex items-center gap-2 mr-4 shrink-0">
+          <h1 className="text-lg font-bold tracking-tight whitespace-nowrap" style={{ color: 'var(--accent)' }}>📚 书库</h1>
+          <span className="text-xs whitespace-nowrap hidden md:inline" style={{ color: 'var(--text-faint)' }}>电子书管理系统</span>
         </div>
 
-        <NavLink to="/" className={(s) => `nav-link ${navItem(s)}`} end>
-          <BookOpen size={16} /> 书架
-        </NavLink>
-        <NavLink to="/stats" className={(s) => `nav-link ${navItem(s)}`}>
-          <BarChart3 size={16} /> 统计
-        </NavLink>
-        <NavLink to="/graph" className={(s) => `nav-link ${navItem(s)}`}>
-          <GitFork size={16} /> 知识图谱
-        </NavLink>
-        <NavLink to="/chat" className={(s) => `nav-link ${navItem(s)}`}>
-          <MessageSquare size={16} /> AI 问书
-        </NavLink>
-        <NavLink to="/duplicates" className={(s) => `nav-link ${navItem(s)}`}>
-          <Copy size={16} /> 重复管理
-        </NavLink>
-        <NavLink to="/private" className={(s) => `nav-link ${navItem(s)}`}>
-          {unlocked ? <Unlock size={16} /> : <Lock size={16} />} 私密书架
-        </NavLink>
+        <nav className="flex items-center gap-1 flex-1 overflow-x-auto">
+          <NavLink to="/" className={(s) => `nav-link ${navItem(s)}`} end>
+            <BookOpen size={16} /> 书架
+          </NavLink>
+          <NavLink to="/stats" className={(s) => `nav-link ${navItem(s)}`}>
+            <BarChart3 size={16} /> 统计
+          </NavLink>
+          <NavLink to="/graph" className={(s) => `nav-link ${navItem(s)}`}>
+            <GitFork size={16} /> 知识图谱
+          </NavLink>
+          <NavLink to="/chat" className={(s) => `nav-link ${navItem(s)}`}>
+            <MessageSquare size={16} /> AI 问书
+          </NavLink>
+          <NavLink to="/duplicates" className={(s) => `nav-link ${navItem(s)}`}>
+            <Copy size={16} /> 重复管理
+          </NavLink>
+          <NavLink to="/private" className={(s) => `nav-link ${navItem(s)}`}>
+            {unlocked ? <Unlock size={16} /> : <Lock size={16} />} 私密书架
+          </NavLink>
+        </nav>
 
-        <div className="flex-1" />
-
-        {unlocked && (
-          <button onClick={handleLock} className={`nav-link ${navItem({ isActive: false })}`}>
-            <Lock size={16} /> 锁定私密书架
+        <div className="flex items-center gap-1 shrink-0">
+          {unlocked && (
+            <button onClick={handleLock} className={`nav-link ${navItem({ isActive: false })}`} title="锁定私密书架">
+              <Lock size={16} />
+            </button>
+          )}
+          <button onClick={handleExport} className={`nav-link ${navItem({ isActive: false })}`} title="导出备份">
+            <Download size={16} />
           </button>
-        )}
-
-        <button onClick={handleExport} className={`nav-link ${navItem({ isActive: false })}`}>
-          <Download size={16} /> 导出备份
-        </button>
-        <button onClick={() => setHelpOpen(true)} className={`nav-link ${navItem({ isActive: false })}`}>
-          <Keyboard size={16} /> 快捷键
-        </button>
-        <NavLink to="/settings" className={(s) => `nav-link ${navItem(s)}`}>
-          <Settings size={16} /> 设置
-        </NavLink>
-        <div className="px-2 pt-2">
-          <ThemeSwitcher />
+          <button onClick={() => setHelpOpen(true)} className={`nav-link ${navItem({ isActive: false })}`} title="快捷键">
+            <Keyboard size={16} />
+          </button>
+          <NavLink to="/settings" className={(s) => `nav-link ${navItem(s)}`} title="设置">
+            <Settings size={16} />
+          </NavLink>
+          <div className="pl-1">
+            <ThemeSwitcher />
+          </div>
         </div>
-      </aside>
+      </header>
 
       <main className="flex-1 overflow-auto">
         <Routes>
