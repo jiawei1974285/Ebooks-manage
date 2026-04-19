@@ -7,7 +7,7 @@ import {
 } from 'lucide-react'
 import {
   getBook, generateSummary, classifyBook, embedBook, updateBook, deleteBook, indexBook,
-  getCategoriesConfig, mineruParse, bookFileUrl, openBookLocal,
+  getCategoriesConfig, mineruParse, bookFileUrl, openBookLocal, autoTagBook,
 } from '../api'
 import PdfPreview from '../components/PdfPreview'
 import StarRating from '../components/StarRating'
@@ -111,6 +111,10 @@ export default function BookDetail() {
               loading={busy.cls} icon={<Tag size={14} />} label="自动分类"
             />
             <ActionBtn
+              onClick={() => run('tag', () => autoTagBook(id), d => setBook(b => ({ ...b, tags: d.tags })))}
+              loading={busy.tag} icon={<Tag size={14} />} label="AI 打标签"
+            />
+            <ActionBtn
               onClick={() => run('emb', () => embedBook(id), () => setBook(b => ({ ...b, embedding_done: true })))}
               loading={busy.emb} icon={<Hash size={14} />}
               label={book.embedding_done ? '已向量化 ✓' : '加入向量搜索'}
@@ -207,7 +211,16 @@ export default function BookDetail() {
               editing={editing.language} setEditing={(v) => setEditing(e => ({ ...e, language: v }))}
               onSave={(v) => saveField('language', v)} />
             <MetaRow icon={<BookOpen size={14} />} label="页数">{book.page_count || '-'}</MetaRow>
-            <MetaRow icon={<FileText size={14} />} label="格式">{book.file_format}</MetaRow>
+            <MetaRow icon={<FileText size={14} />} label="格式">
+              <span className="inline-flex items-center gap-2">
+                {book.file_format}
+                {book.mineru_parsed && (
+                  <span className="chip inline-flex items-center gap-0.5" title="已用 MinerU OCR 解析">
+                    <ScanLine size={10} /> MinerU
+                  </span>
+                )}
+              </span>
+            </MetaRow>
             <MetaRow icon={<FileText size={14} />} label="路径">
               <div className="flex flex-col gap-1 min-w-0">
                 <span className="text-xs text-faint break-all">{book.file_path}</span>

@@ -2,12 +2,16 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
   Search, FolderOpen, RefreshCw, X, ArrowDownAZ, Sparkles, Tag, Hash, Loader2, ChevronDown,
-  BookMarked, Trash2, LayoutGrid, List, Pencil, CheckSquare, Square
+  BookMarked, Trash2, LayoutGrid, List, Pencil, CheckSquare, Square, ScanLine,
 } from 'lucide-react'
 import BookCard, { BookCardSkeleton } from '../components/BookCard'
 import ScanModal from '../components/ScanModal'
 import DropZone from '../components/DropZone'
-import { getBooks, getCategories, search as searchApi, batchAction, updateBook, deleteBook, getCategoriesConfig } from '../api'
+import AiProgressToast from '../components/AiProgressToast'
+import {
+  getBooks, getCategories, getTags, search as searchApi,
+  updateBook, deleteBook, getCategoriesConfig, batchStreamUrl,
+} from '../api'
 
 const SORT_OPTIONS = [
   { value: 'created_desc', label: '最近添加' },
@@ -26,6 +30,10 @@ export default function Library({ scope = 'public' }) {
   const activeFormat = searchParams.get('format') || ''
   const query = searchParams.get('q') || ''
   const sort = searchParams.get('sort') || 'created_desc'
+  const tagsParam = searchParams.get('tags') || ''
+  const activeTags = tagsParam ? tagsParam.split(',').filter(Boolean) : []
+  const tagMode = searchParams.get('tag_mode') || 'and'
+  const mineruFilter = searchParams.get('mineru') || '' // '' | '1' | '0'
 
   function updateParams(patch, { resetPage = false } = {}) {
     setSearchParams(prev => {
@@ -42,6 +50,7 @@ export default function Library({ scope = 'public' }) {
   const [books, setBooks] = useState([])
   const [total, setTotal] = useState(0)
   const [categories, setCategories] = useState([])
+  const [allTags, setAllTags] = useState([])
   const [searchInput, setSearchInput] = useState(query)
   const [loading, setLoading] = useState(false)
   const [showScan, setShowScan] = useState(false)
@@ -49,7 +58,7 @@ export default function Library({ scope = 'public' }) {
   useEffect(() => { localStorage.setItem('libraryView', view) }, [view])
   const [batchOpen, setBatchOpen] = useState(false)
   const [batchResult, setBatchResult] = useState(null)
-  const [batchBusy, setBatchBusy] = useState('')
+  const [progressUrl, setProgressUrl] = useState('')
   const [selected, setSelected] = useState(new Set())
   const [catModalOpen, setCatModalOpen] = useState(false)
   const [metaModalOpen, setMetaModalOpen] = useState(false)
@@ -59,6 +68,10 @@ export default function Library({ scope = 'public' }) {
 
   const loadCategories = useCallback(() => {
     getCategories({ scope }).then(({ data }) => setCategories(data))
+  }, [scope])
+
+  const loadTags = useCallback(() => {
+    getTags({ scope }).then(({ data }) => setAllTags(data || [])).catch(() => {})
   }, [scope])
 
   const loadBooks = useCallback(async () => {
@@ -72,14 +85,18 @@ export default function Library({ scope = 'public' }) {
           page, page_size: PAGE_SIZE, sort,
           category: activeCategory || undefined,
           format: activeFormat || undefined,
+          tags: activeTags.length ? activeTags.join(',') : undefined,
+          tag_mode: activeTags.length > 1 ? tagMode : undefined,
+          mineru_parsed: mineruFilter === '1' ? true : mineruFilter === '0' ? false : undefined,
           scope,
         })
         setBooks(data.books); setTotal(data.total)
       }
     } finally { setLoading(false) }
-  }, [page, activeCategory, activeFormat, query, sort, scope])
+  }, [page, activeCategory, activeFormat, query, sort, scope, tagsParam, tagMode, mineruFilter])
 
   useEffect(() => { loadCategories() }, [loadCategories])
+  useEffect(() => { loadTags() }, [loadTags])
   useEffect(() => {
     getCategoriesConfig().then(({ data }) => setAllCategories(data.categories || [])).catch(() => {})
   }, [])
@@ -130,16 +147,17 @@ export default function Library({ scope = 'public' }) {
     })
   }
 
-  async function runBatch(action) {
-    setBatchBusy(action); setBatchResult(null); setBatchOpen(false)
+  function runBatch(action) {
+    setBatchResult(null); setBatchOpen(false)
     const book_ids = selected.size > 0 ? [...selected] : undefined
-    try {
-      const { data } = await batchAction(action, book_ids)
-      setBatchResult({ action, ...data })
-      loadBooks(); loadCategories()
-    } catch (e) {
-      setBatchResult({ action, error: e.response?.data?.detail || '失败' })
-    } finally { setBatchBusy('') }
+    setProgressUrl(batchStreamUrl(action, book_ids))
+  }
+
+  function toggleTag(name) {
+    const next = activeTags.includes(name)
+      ? activeTags.filter(t => t !== name)
+      : [...activeTags, name]
+    updateParams({ tags: next.join(',') }, { resetPage: true })
   }
 
   async function bulkDelete() {
@@ -217,6 +235,62 @@ export default function Library({ scope = 'public' }) {
               noIndent>{fmt}</SideBtn>
           ))}
         </div>
+
+        <div className="mt-4 px-4">
+          <p className="text-xs font-semibold uppercase mb-2 tracking-wider text-faint">OCR</p>
+          {[
+            { v: '1', label: 'MinerU 已解析' },
+            { v: '0', label: '未经 MinerU' },
+          ].map(({ v, label }) => (
+            <SideBtn key={v} active={mineruFilter === v}
+              onClick={() => updateParams({ mineru: mineruFilter === v ? '' : v }, { resetPage: true })}
+              noIndent>{label}</SideBtn>
+          ))}
+        </div>
+
+        {allTags.length > 0 && (
+          <div className="mt-4 px-4">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-semibold uppercase tracking-wider text-faint">标签</p>
+              {activeTags.length > 1 && (
+                <button
+                  onClick={() => updateParams({ tag_mode: tagMode === 'and' ? 'or' : 'and' }, { resetPage: true })}
+                  className="text-[10px] px-1.5 py-0.5 rounded border"
+                  style={{ borderColor: 'var(--border)', color: 'var(--accent)' }}
+                  title="点击切换标签逻辑"
+                >
+                  {tagMode === 'and' ? '全部包含' : '任一包含'}
+                </button>
+              )}
+            </div>
+            {activeTags.length > 0 && (
+              <button
+                onClick={() => updateParams({ tags: '' }, { resetPage: true })}
+                className="text-[10px] text-faint mb-1 hover:underline"
+              >
+                清除 {activeTags.length} 个已选
+              </button>
+            )}
+            <div className="flex flex-wrap gap-1">
+              {allTags.slice(0, 40).map(t => {
+                const on = activeTags.includes(t.name)
+                return (
+                  <button key={t.name} onClick={() => toggleTag(t.name)}
+                    className="text-[11px] px-1.5 py-0.5 rounded border transition-colors truncate max-w-full"
+                    style={{
+                      background: on ? 'var(--accent-soft)' : 'transparent',
+                      borderColor: on ? 'var(--accent)' : 'var(--border)',
+                      color: on ? 'var(--accent)' : 'var(--text-muted)',
+                    }}
+                    title={`${t.name} (${t.count})`}
+                  >
+                    {t.name}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
       </aside>
 
       <div className="flex-1 flex flex-col overflow-hidden">
@@ -300,13 +374,15 @@ export default function Library({ scope = 'public' }) {
                 onMouseLeave={() => setBatchOpen(false)}
               >
                 <BatchItem icon={<Sparkles size={14} />} label={selectMode ? '生成摘要（选中）' : '生成摘要（缺失）'}
-                  busy={batchBusy === 'summary'} onClick={() => runBatch('summary')} />
+                  onClick={() => runBatch('summary')} />
                 <BatchItem icon={<Tag size={14} />} label={selectMode ? '自动分类（选中）' : '自动分类（未分类）'}
-                  busy={batchBusy === 'classify'} onClick={() => runBatch('classify')} />
+                  onClick={() => runBatch('classify')} />
+                <BatchItem icon={<Tag size={14} />} label={selectMode ? 'AI 打标签（选中）' : 'AI 打标签（未打标签）'}
+                  onClick={() => runBatch('auto_tag')} />
                 <BatchItem icon={<Hash size={14} />} label={selectMode ? '向量化（选中）' : '向量化（未处理）'}
-                  busy={batchBusy === 'embed'} onClick={() => runBatch('embed')} />
+                  onClick={() => runBatch('embed')} />
                 <BatchItem icon={<BookMarked size={14} />} label={selectMode ? '全文索引（选中）' : '全文索引（未索引）'}
-                  busy={batchBusy === 'index'} onClick={() => runBatch('index')} />
+                  onClick={() => runBatch('index')} />
                 {selectMode && <>
                   <div className="border-t my-1" style={{ borderColor: 'var(--border)' }} />
                   <BatchItem icon={<Pencil size={14} />} label="修改书籍信息（选中）" onClick={() => { setBatchOpen(false); setMetaModalOpen(true) }} />
@@ -336,9 +412,9 @@ export default function Library({ scope = 'public' }) {
           <div className="mx-6 mt-3 rounded-lg px-4 py-2 text-sm flex items-center justify-between"
             style={{ background: 'var(--accent-soft)', color: 'var(--accent-text)' }}>
             <span>
-              {batchResult.error
-                ? `失败：${batchResult.error}`
-                : `批量${({summary:'摘要',classify:'分类',embed:'向量化',index:'全文索引'})[batchResult.action]}完成：成功 ${batchResult.success} / ${batchResult.total}${batchResult.failed ? `，失败 ${batchResult.failed}` : ''}`}
+              批量{({summary:'摘要',classify:'分类',auto_tag:'AI 打标签',embed:'向量化',index:'全文索引'})[batchResult.action] || batchResult.action}完成：
+              成功 {batchResult.ok} / {batchResult.total}
+              {batchResult.failed ? `，失败 ${batchResult.failed}` : ''}
             </span>
             <button onClick={() => setBatchResult(null)}><X size={14} /></button>
           </div>
@@ -398,6 +474,14 @@ export default function Library({ scope = 'public' }) {
           existingFromCategories={categories.map(c => c.name)}
           onApply={bulkApplyCategory}
           onClose={() => setCatModalOpen(false)}
+        />
+      )}
+
+      {progressUrl && (
+        <AiProgressToast
+          url={progressUrl}
+          onDone={(res) => { setBatchResult(res); loadBooks(); loadCategories(); loadTags() }}
+          onClose={() => setProgressUrl('')}
         />
       )}
     </div>

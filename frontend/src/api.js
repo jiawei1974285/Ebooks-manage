@@ -45,6 +45,14 @@ export const batchAction = (action, book_ids) => api.post('/api/batch', { action
 
 export const search = (q, mode = 'hybrid') => api.get('/api/search', { params: { q, mode } })
 export const getCategories = (params) => api.get('/api/categories', { params })
+export const getTags = (params) => api.get('/api/tags', { params })
+export const autoTagBook = (id, replace = false) =>
+  api.post(`/api/books/${id}/auto-tag`, null, { params: { replace } })
+export const batchStreamUrl = (action, book_ids) => {
+  const p = new URLSearchParams({ action })
+  if (book_ids && book_ids.length) p.set('book_ids', book_ids.join(','))
+  return `/api/batch/stream?${p.toString()}`
+}
 export const getGraph = () => api.get('/api/graph')
 export const getStats = () => api.get('/api/stats')
 export const chat = (question, opts = {}) => api.post('/api/chat', { question, ...opts })

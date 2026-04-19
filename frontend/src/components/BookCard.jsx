@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom'
-import { FileText, Check, BookMarked } from 'lucide-react'
+import { FileText, Check, BookMarked, ScanLine } from 'lucide-react'
 import { useState } from 'react'
 import StarRating from './StarRating'
 
@@ -89,6 +89,11 @@ export default function BookCard({ book, selectable, selected, onToggleSelect, v
           <span className="chip-gray uppercase">{book.file_format}</span>
           {book.categories?.[0] && <span className="chip truncate">{book.categories[0]}</span>}
           {book.indexed && <span className="chip-gray" title="已建立全文索引">📖</span>}
+          {book.mineru_parsed && (
+            <span className="chip-gray inline-flex items-center gap-0.5" title="已用 MinerU 解析">
+              <ScanLine size={10} /> OCR
+            </span>
+          )}
         </div>
         {book.rating > 0 && (
           <div className="mt-1.5"><StarRating value={book.rating} size={12} /></div>
@@ -144,6 +149,7 @@ function BookRow({ book, selectable, selected, onToggleSelect, onOpen }) {
         <div className="flex items-center gap-2">
           <p className="text-sm font-medium truncate">{book.title}</p>
           {book.indexed && <BookMarked size={11} className="shrink-0" style={{ color: 'var(--accent)' }} />}
+          {book.mineru_parsed && <ScanLine size={11} className="shrink-0" style={{ color: 'var(--accent)' }} title="MinerU 已解析" />}
         </div>
         <p className="text-xs text-faint truncate">{book.author || '未知作者'}</p>
       </div>

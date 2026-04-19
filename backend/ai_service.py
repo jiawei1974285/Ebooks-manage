@@ -92,6 +92,49 @@ JSON 数组："""
     return parts or existing
 
 
+def suggest_tags(title: str, author: str, summary: str, description: str,
+                 existing_tags: list[str] | None = None,
+                 n_max: int = 6) -> list[str]:
+    """让 LLM 基于书籍内容推荐中文标签（细粒度，区别于分类）。"""
+    corpus = (summary or description or "")[:1500]
+    hints = "、".join((existing_tags or [])[:40]) if existing_tags else ""
+    hint_line = f"\n现有标签可参考（尽量复用相同含义的）：{hints}" if hints else ""
+    prompt = f"""请为以下书籍生成 3~{n_max} 个中文标签。
+
+书名：{title}
+作者：{author}
+简介/摘要：{corpus}
+{hint_line}
+
+要求：
+- 标签应细粒度、可作为筛选维度（主题、流派、写作风格、时代、学科分支等）
+- 每个标签 2~6 个汉字，避免与书名/作者重复
+- 只输出一个 JSON 字符串数组，例如 ["认知心理","通俗科普","二十世纪"]，不要任何解释
+
+JSON 数组："""
+    raw = chat_complete([{"role": "user", "content": prompt}], temperature=0.4)
+    m = re.search(r"\[.*\]", raw, re.S)
+    tags: list[str] = []
+    if m:
+        try:
+            arr = json.loads(m.group(0))
+            tags = [str(x).strip() for x in arr if str(x).strip()]
+        except Exception:
+            logger.warning(f"suggest_tags parse failed; raw={raw[:200]}")
+    if not tags:
+        tags = [p.strip(" 、,.·*-#") for p in re.split(r"[,，、\n]", raw) if p.strip()]
+    # dedupe, cap length, filter noise
+    seen, out = set(), []
+    for t in tags:
+        k = t.strip()
+        if not k or len(k) > 12 or k in seen:
+            continue
+        seen.add(k); out.append(k)
+        if len(out) >= n_max:
+            break
+    return out
+
+
 def get_embedding(text: str) -> list[float]:
     return _get_embed(text)
 
