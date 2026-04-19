@@ -2,12 +2,12 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
   Search, FolderOpen, RefreshCw, X, ArrowDownAZ, Sparkles, Tag, Hash, Loader2, ChevronDown,
-  BookMarked, Trash2, LayoutGrid, List, Pencil, CheckSquare, Square, ScanLine,
+  BookMarked, Trash2, LayoutGrid, List, Pencil, CheckSquare, Square, ScanLine, ChevronRight,
 } from 'lucide-react'
 import BookCard, { BookCardSkeleton } from '../components/BookCard'
 import ScanModal from '../components/ScanModal'
 import DropZone from '../components/DropZone'
-import AiProgressToast from '../components/AiProgressToast'
+import { useProgress } from '../contexts/ProgressContext'
 import {
   getBooks, getCategories, getTags, search as searchApi,
   updateBook, deleteBook, getCategoriesConfig, batchStreamUrl,
@@ -58,7 +58,7 @@ export default function Library({ scope = 'public' }) {
   useEffect(() => { localStorage.setItem('libraryView', view) }, [view])
   const [batchOpen, setBatchOpen] = useState(false)
   const [batchResult, setBatchResult] = useState(null)
-  const [progressUrl, setProgressUrl] = useState('')
+  const { startBatch } = useProgress()
   const [selected, setSelected] = useState(new Set())
   const [catModalOpen, setCatModalOpen] = useState(false)
   const [metaModalOpen, setMetaModalOpen] = useState(false)
@@ -150,7 +150,9 @@ export default function Library({ scope = 'public' }) {
   function runBatch(action) {
     setBatchResult(null); setBatchOpen(false)
     const book_ids = selected.size > 0 ? [...selected] : undefined
-    setProgressUrl(batchStreamUrl(action, book_ids))
+    startBatch(batchStreamUrl(action, book_ids), {
+      onDone: (res) => { setBatchResult(res); loadBooks(); loadCategories(); loadTags() },
+    })
   }
 
   function toggleTag(name) {
@@ -214,83 +216,109 @@ export default function Library({ scope = 'public' }) {
     <DropZone onDone={() => { loadBooks(); loadCategories() }}>
     <div className="flex h-full">
       <aside
-        className="w-44 flex flex-col py-4 shrink-0 overflow-y-auto border-r"
+        className="w-56 flex flex-col shrink-0 border-r overflow-hidden"
         style={{ background: 'var(--bg-panel)', borderColor: 'var(--border)' }}
       >
-        <p className="text-xs font-semibold uppercase px-4 mb-2 tracking-wider text-faint">分类</p>
-        <SideBtn active={!activeCategory} onClick={() => updateParams({ category: '' }, { resetPage: true })}>
-          全部 ({total})
-        </SideBtn>
-        {categories.map((cat) => (
-          <SideBtn key={cat.name} active={activeCategory === cat.name}
-            onClick={() => { updateParams({ category: cat.name, q: '' }, { resetPage: true }); setSearchInput('') }}>
-            {cat.name} ({cat.count})
-          </SideBtn>
-        ))}
-        <div className="mt-4 px-4">
-          <p className="text-xs font-semibold uppercase mb-2 tracking-wider text-faint">格式</p>
-          {['PDF', 'EPUB', 'MOBI'].map((fmt) => (
-            <SideBtn key={fmt} active={activeFormat === fmt}
-              onClick={() => updateParams({ format: activeFormat === fmt ? '' : fmt }, { resetPage: true })}
-              noIndent>{fmt}</SideBtn>
-          ))}
-        </div>
-
-        <div className="mt-4 px-4">
-          <p className="text-xs font-semibold uppercase mb-2 tracking-wider text-faint">OCR</p>
-          {[
-            { v: '1', label: 'MinerU 已解析' },
-            { v: '0', label: '未经 MinerU' },
-          ].map(({ v, label }) => (
-            <SideBtn key={v} active={mineruFilter === v}
-              onClick={() => updateParams({ mineru: mineruFilter === v ? '' : v }, { resetPage: true })}
-              noIndent>{label}</SideBtn>
-          ))}
-        </div>
-
-        {allTags.length > 0 && (
-          <div className="mt-4 px-4">
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-xs font-semibold uppercase tracking-wider text-faint">标签</p>
-              {activeTags.length > 1 && (
-                <button
-                  onClick={() => updateParams({ tag_mode: tagMode === 'and' ? 'or' : 'and' }, { resetPage: true })}
-                  className="text-[10px] px-1.5 py-0.5 rounded border"
-                  style={{ borderColor: 'var(--border)', color: 'var(--accent)' }}
-                  title="点击切换标签逻辑"
-                >
-                  {tagMode === 'and' ? '全部包含' : '任一包含'}
-                </button>
-              )}
+        <div className="flex-1 overflow-y-auto">
+          <FilterSection title="分类" badge={activeCategory ? 1 : 0} storageKey="lib:cat" defaultOpen>
+            <div className="max-h-[38vh] overflow-y-auto pr-1">
+              <SideBtn active={!activeCategory} onClick={() => updateParams({ category: '' }, { resetPage: true })}>
+                全部 ({total})
+              </SideBtn>
+              {categories.map((cat) => (
+                <SideBtn key={cat.name} active={activeCategory === cat.name}
+                  onClick={() => { updateParams({ category: cat.name, q: '' }, { resetPage: true }); setSearchInput('') }}>
+                  {cat.name} ({cat.count})
+                </SideBtn>
+              ))}
             </div>
-            {activeTags.length > 0 && (
-              <button
-                onClick={() => updateParams({ tags: '' }, { resetPage: true })}
-                className="text-[10px] text-faint mb-1 hover:underline"
-              >
-                清除 {activeTags.length} 个已选
-              </button>
-            )}
-            <div className="flex flex-wrap gap-1">
-              {allTags.slice(0, 40).map(t => {
-                const on = activeTags.includes(t.name)
+          </FilterSection>
+
+          <FilterSection title="格式" badge={activeFormat ? 1 : 0} storageKey="lib:fmt">
+            <div className="flex flex-wrap gap-1.5 px-4 pb-1">
+              {['PDF', 'EPUB', 'MOBI'].map((fmt) => {
+                const on = activeFormat === fmt
                 return (
-                  <button key={t.name} onClick={() => toggleTag(t.name)}
-                    className="text-[11px] px-1.5 py-0.5 rounded border transition-colors truncate max-w-full"
+                  <button key={fmt}
+                    onClick={() => updateParams({ format: on ? '' : fmt }, { resetPage: true })}
+                    className="text-[11px] px-2 py-0.5 rounded-full border transition-colors"
                     style={{
                       background: on ? 'var(--accent-soft)' : 'transparent',
                       borderColor: on ? 'var(--accent)' : 'var(--border)',
                       color: on ? 'var(--accent)' : 'var(--text-muted)',
-                    }}
-                    title={`${t.name} (${t.count})`}
-                  >
-                    {t.name}
+                    }}>
+                    {fmt}
                   </button>
                 )
               })}
             </div>
-          </div>
-        )}
+          </FilterSection>
+
+          <FilterSection title="OCR" badge={mineruFilter ? 1 : 0} storageKey="lib:ocr">
+            <div className="flex flex-wrap gap-1.5 px-4 pb-1">
+              {[
+                { v: '1', label: '已解析' },
+                { v: '0', label: '未解析' },
+              ].map(({ v, label }) => {
+                const on = mineruFilter === v
+                return (
+                  <button key={v}
+                    onClick={() => updateParams({ mineru: on ? '' : v }, { resetPage: true })}
+                    className="text-[11px] px-2 py-0.5 rounded-full border transition-colors"
+                    style={{
+                      background: on ? 'var(--accent-soft)' : 'transparent',
+                      borderColor: on ? 'var(--accent)' : 'var(--border)',
+                      color: on ? 'var(--accent)' : 'var(--text-muted)',
+                    }}>
+                    {label}
+                  </button>
+                )
+              })}
+            </div>
+          </FilterSection>
+
+          {allTags.length > 0 && (
+            <FilterSection title="标签" badge={activeTags.length} storageKey="lib:tags" defaultOpen>
+              <div className="px-4 pb-2">
+                <div className="flex items-center justify-between mb-1.5">
+                  {activeTags.length > 1 ? (
+                    <button
+                      onClick={() => updateParams({ tag_mode: tagMode === 'and' ? 'or' : 'and' }, { resetPage: true })}
+                      className="text-[10px] px-1.5 py-0.5 rounded border"
+                      style={{ borderColor: 'var(--border)', color: 'var(--accent)' }}
+                      title="点击切换标签逻辑">
+                      {tagMode === 'and' ? '全部包含' : '任一包含'}
+                    </button>
+                  ) : <span />}
+                  {activeTags.length > 0 && (
+                    <button
+                      onClick={() => updateParams({ tags: '' }, { resetPage: true })}
+                      className="text-[10px] text-faint hover:underline">
+                      清除 {activeTags.length}
+                    </button>
+                  )}
+                </div>
+                <div className="max-h-[36vh] overflow-y-auto flex flex-wrap gap-1 pr-1">
+                  {allTags.map(t => {
+                    const on = activeTags.includes(t.name)
+                    return (
+                      <button key={t.name} onClick={() => toggleTag(t.name)}
+                        className="text-[11px] px-1.5 py-0.5 rounded border transition-colors truncate max-w-full"
+                        style={{
+                          background: on ? 'var(--accent-soft)' : 'transparent',
+                          borderColor: on ? 'var(--accent)' : 'var(--border)',
+                          color: on ? 'var(--accent)' : 'var(--text-muted)',
+                        }}
+                        title={`${t.name} (${t.count})`}>
+                        {t.name}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            </FilterSection>
+          )}
+        </div>
       </aside>
 
       <div className="flex-1 flex flex-col overflow-hidden">
@@ -477,13 +505,6 @@ export default function Library({ scope = 'public' }) {
         />
       )}
 
-      {progressUrl && (
-        <AiProgressToast
-          url={progressUrl}
-          onDone={(res) => { setBatchResult(res); loadBooks(); loadCategories(); loadTags() }}
-          onClose={() => setProgressUrl('')}
-        />
-      )}
     </div>
     </DropZone>
   )
@@ -493,7 +514,7 @@ function SideBtn({ active, onClick, children, noIndent }) {
   return (
     <button
       onClick={onClick}
-      className="text-left px-4 py-1.5 text-sm transition-colors truncate"
+      className="w-full text-left px-4 py-1.5 text-sm transition-colors truncate block"
       style={{
         color: active ? 'var(--accent)' : 'var(--text-muted)',
         background: active ? 'var(--bg-hover)' : 'transparent',
@@ -505,6 +526,42 @@ function SideBtn({ active, onClick, children, noIndent }) {
     >
       {children}
     </button>
+  )
+}
+
+function FilterSection({ title, badge, children, storageKey, defaultOpen = false }) {
+  const [open, setOpen] = useState(() => {
+    if (!storageKey) return defaultOpen
+    const saved = localStorage.getItem(storageKey)
+    return saved == null ? defaultOpen : saved === '1'
+  })
+  function toggle() {
+    const next = !open
+    setOpen(next)
+    if (storageKey) localStorage.setItem(storageKey, next ? '1' : '0')
+  }
+  return (
+    <div className="border-b py-2" style={{ borderColor: 'var(--border)' }}>
+      <button
+        onClick={toggle}
+        className="w-full flex items-center justify-between px-4 py-1.5 text-xs font-semibold uppercase tracking-wider text-faint hover:opacity-80"
+      >
+        <span className="flex items-center gap-1.5">
+          <ChevronRight
+            size={12}
+            style={{ transform: open ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }}
+          />
+          {title}
+          {badge > 0 && (
+            <span className="text-[10px] px-1.5 rounded-full"
+                  style={{ background: 'var(--accent)', color: 'white' }}>
+              {badge}
+            </span>
+          )}
+        </span>
+      </button>
+      {open && <div className="mt-1">{children}</div>}
+    </div>
   )
 }
 

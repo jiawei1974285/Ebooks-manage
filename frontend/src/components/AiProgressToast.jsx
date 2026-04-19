@@ -28,7 +28,10 @@ export default function AiProgressToast({ url, onDone, onClose }) {
     if (!url) return
     const es = new EventSource(url)
     esRef.current = es
+    let finished = false
+    let gotAny = false
     es.onmessage = (ev) => {
+      gotAny = true
       try {
         const msg = JSON.parse(ev.data)
         setState(prev => {
@@ -45,6 +48,7 @@ export default function AiProgressToast({ url, onDone, onClose }) {
             }
           } else if (msg.type === 'done') {
             next.done = true; next.ok = msg.ok; next.failed = msg.failed; next.total = msg.total
+            finished = true
             try { es.close() } catch {}
             onDone?.({ ok: msg.ok, failed: msg.failed, total: msg.total, action: msg.action })
           }
@@ -53,7 +57,12 @@ export default function AiProgressToast({ url, onDone, onClose }) {
       } catch {}
     }
     es.onerror = () => {
-      setState(prev => ({ ...prev, done: true, error: '连接中断' }))
+      if (finished) return  // normal close after done
+      setState(prev => ({
+        ...prev,
+        done: true,
+        error: gotAny ? '连接中断' : '无法连接后端（请确认后端已重启）',
+      }))
       try { es.close() } catch {}
     }
     return () => { try { es.close() } catch {} }

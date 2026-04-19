@@ -14,6 +14,7 @@ import ThemeSwitcher from './components/ThemeSwitcher'
 import ShortcutsHelp from './components/ShortcutsHelp'
 import { useShortcuts } from './hooks/useShortcuts'
 import { exportLibrary } from './api'
+import { ProgressProvider } from './contexts/ProgressContext'
 
 const navItem = ({ isActive }) =>
   `flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
@@ -129,7 +130,9 @@ function Shell() {
 export default function App() {
   return (
     <BrowserRouter>
-      <Shell />
+      <ProgressProvider>
+        <Shell />
+      </ProgressProvider>
     </BrowserRouter>
   )
 }
