@@ -1,0 +1,66 @@
+# ============================================================
+# EbookHub — track only the app source (backend/ + frontend/)
+# Exclude the user's book library, data, caches, secrets.
+# ============================================================
+
+# ── Everything at the repo root is IGNORED by default.
+# We whitelist specific paths below.
+/*
+
+# ── Whitelist app directories and top-level project files ──
+!/backend/
+!/frontend/
+!/docs/
+!/README.md
+!/.gitignore
+!/.gitattributes
+!/LICENSE
+!/install.bat
+!/start.bat
+
+# ═══════════════════════════════════════════════════════════
+# Backend (Python)
+# ═══════════════════════════════════════════════════════════
+backend/__pycache__/
+backend/**/__pycache__/
+backend/*.pyc
+backend/**/*.pyc
+backend/.venv/
+backend/venv/
+backend/env/
+backend/.pytest_cache/
+backend/.mypy_cache/
+
+# Generated / runtime data (DO NOT commit)
+backend/ebook_manager.db
+backend/ebook_manager.db-journal
+backend/chroma_db/
+backend/covers/
+backend/uploads/
+backend/user_settings.json
+backend/*.log
+
+# ═══════════════════════════════════════════════════════════
+# Frontend (Node)
+# ═══════════════════════════════════════════════════════════
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/.turbo/
+frontend/*.log
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+frontend/pnpm-debug.log*
+frontend/.env
+frontend/.env.local
+frontend/.env.*.local
+
+# ═══════════════════════════════════════════════════════════
+# Editors / OS
+# ═══════════════════════════════════════════════════════════
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db

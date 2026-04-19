@@ -1,0 +1,59 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* CSS variables are injected by theme.js */
+body {
+  background: var(--bg);
+  color: var(--text);
+  transition: background-color 0.25s ease, color 0.25s ease;
+}
+
+@layer components {
+  .btn {
+    @apply px-3 py-2 rounded-lg text-sm font-medium transition-colors;
+    background: var(--bg-card);
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+  .btn:hover { background: var(--bg-hover); }
+  .btn-primary {
+    @apply px-4 py-2 rounded-lg text-sm font-medium transition-colors text-white;
+    background: var(--accent);
+    border: none;
+  }
+  .btn-primary:hover { background: var(--accent-hover); }
+  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .panel { background: var(--bg-panel); border-color: var(--border); }
+  .card { background: var(--bg-card); border-color: var(--border); }
+  .text-muted { color: var(--text-muted); }
+  .text-faint { color: var(--text-faint); }
+  .border-themed { border-color: var(--border); }
+
+  .input-themed {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    color: var(--text);
+    @apply rounded-lg px-3 py-2 text-sm transition-colors;
+  }
+  .input-themed:focus { outline: none; border-color: var(--accent); }
+  .input-themed::placeholder { color: var(--text-faint); }
+
+  .chip {
+    background: var(--accent-soft);
+    color: var(--accent-text);
+    @apply text-xs px-2 py-0.5 rounded-full;
+  }
+  .chip-gray {
+    background: var(--bg-hover);
+    color: var(--text-muted);
+    @apply text-xs px-2 py-0.5 rounded-full;
+  }
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-faint); }
