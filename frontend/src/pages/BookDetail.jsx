@@ -3,11 +3,11 @@ import { useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, Loader2, Sparkles, Tag, FileText, User,
   Building, Calendar, Globe, BookOpen, Hash, Trash2, Eye, BookMarked,
-  Pencil, Check, X, Plus, Lock, Unlock, ScanLine,
+  Pencil, Check, X, Plus, Lock, Unlock, ScanLine, ExternalLink, FolderOpen,
 } from 'lucide-react'
 import {
   getBook, generateSummary, classifyBook, embedBook, updateBook, deleteBook, indexBook,
-  getCategoriesConfig, mineruParse,
+  getCategoriesConfig, mineruParse, bookFileUrl, openBookLocal,
 } from '../api'
 import PdfPreview from '../components/PdfPreview'
 import StarRating from '../components/StarRating'
@@ -209,7 +209,42 @@ export default function BookDetail() {
             <MetaRow icon={<BookOpen size={14} />} label="页数">{book.page_count || '-'}</MetaRow>
             <MetaRow icon={<FileText size={14} />} label="格式">{book.file_format}</MetaRow>
             <MetaRow icon={<FileText size={14} />} label="路径">
-              <span className="text-xs text-faint break-all">{book.file_path}</span>
+              <div className="flex flex-col gap-1 min-w-0">
+                <span className="text-xs text-faint break-all">{book.file_path}</span>
+                <div className="flex items-center gap-3 text-xs">
+                  <a
+                    href={bookFileUrl(book.id)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-accent hover:underline"
+                    title="在浏览器新标签中打开"
+                  >
+                    <ExternalLink size={12} /> 在浏览器打开
+                  </a>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try { await openBookLocal(book.id, false) }
+                      catch (e) { alert(e?.response?.data?.detail || '打开失败') }
+                    }}
+                    className="inline-flex items-center gap-1 text-accent hover:underline"
+                    title="用本机默认程序打开原文件"
+                  >
+                    <BookOpen size={12} /> 用默认程序打开
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try { await openBookLocal(book.id, true) }
+                      catch (e) { alert(e?.response?.data?.detail || '打开失败') }
+                    }}
+                    className="inline-flex items-center gap-1 text-accent hover:underline"
+                    title="在文件管理器中定位文件"
+                  >
+                    <FolderOpen size={12} /> 打开所在文件夹
+                  </button>
+                </div>
+              </div>
             </MetaRow>
           </div>
 

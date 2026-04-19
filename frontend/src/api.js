@@ -78,6 +78,8 @@ export const uploadFiles = (files) => {
 }
 
 export const bookFileUrl = (id) => `/api/books/${id}/file`
+export const openBookLocal = (id, reveal = false) =>
+  api.post(`/api/books/${id}/open-local`, null, { params: { reveal } })
 export const scanStreamUrl = (directory) => `/api/scan/stream?directory=${encodeURIComponent(directory)}`
 
 export default api

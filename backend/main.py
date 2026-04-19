@@ -1035,6 +1035,31 @@ def get_book_file(book_id: int, db: Session = Depends(get_db)):
     )
 
 
+@app.post("/api/books/{book_id}/open-local")
+def open_book_local(book_id: int, reveal: bool = False, db: Session = Depends(get_db)):
+    """用本机默认程序打开原文件（reveal=true 则定位到所在文件夹）。仅限本地访问。"""
+    import sys
+    import subprocess
+    book = db.query(Book).filter(Book.id == book_id).first()
+    if not book or not os.path.exists(book.file_path):
+        raise HTTPException(status_code=404, detail="文件不存在")
+    path = os.path.abspath(book.file_path)
+    try:
+        if sys.platform.startswith("win"):
+            if reveal:
+                subprocess.Popen(["explorer", "/select,", path])
+            else:
+                os.startfile(path)  # type: ignore[attr-defined]
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", "-R" if reveal else path, path] if reveal else ["open", path])
+        else:
+            target = os.path.dirname(path) if reveal else path
+            subprocess.Popen(["xdg-open", target])
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"打开失败: {e}")
+    return {"ok": True, "path": path, "reveal": reveal}
+
+
 # ── Routes: SSE scan with progress ───────────────────────────────────────────
 
 def _sse(event: dict) -> str:
