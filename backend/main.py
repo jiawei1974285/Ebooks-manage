@@ -102,7 +102,7 @@ class LLMTestRequest(BaseModel):
 
 
 class BatchRequest(BaseModel):
-    action: str  # summary | classify | embed
+    action: str  # summary | classify | embed | index | auto_tag
     book_ids: Optional[list[int]] = None  # None = all unprocessed
 
 
@@ -211,6 +211,7 @@ def book_to_dict(book: Book) -> dict:
         "rating": book.rating or 0,
         "review": book.review or "",
         "is_private": bool(book.is_private),
+        "mineru_parsed": bool(book.mineru_parsed),
     }
 
 
@@ -237,6 +238,9 @@ def list_books(
     q: Optional[str] = None,
     sort: str = Query("created_desc"),
     scope: str = Query("public"),  # public | private | all
+    tags: Optional[str] = Query(None, description="逗号分隔的标签列表"),
+    tag_mode: str = Query("and", pattern="^(and|or)$"),
+    mineru_parsed: Optional[bool] = None,
     x_private_token: Optional[str] = Header(default=None),
 ):
     query = db.query(Book)
@@ -258,6 +262,19 @@ def list_books(
         query = query.filter(Book.file_format == format.upper())
     if category:
         query = query.filter(Book.categories.contains(category))
+    if mineru_parsed is not None:
+        if mineru_parsed:
+            query = query.filter(Book.mineru_parsed == True)
+        else:
+            query = query.filter((Book.mineru_parsed == False) | (Book.mineru_parsed.is_(None)))
+    # Tag filter: SQLite 无 JSON 操作，这里用 LIKE 做粗筛，Python 端精确过滤
+    tag_list: list[str] = []
+    if tags:
+        tag_list = [t.strip() for t in tags.split(",") if t.strip()]
+        if tag_list:
+            from sqlalchemy import or_, and_
+            clauses = [Book.tags.contains(f'"{t}"') for t in tag_list]
+            query = query.filter(and_(*clauses) if tag_mode == "and" else or_(*clauses))
 
     sort_map = {
         "created_desc": Book.created_at.desc(),
@@ -414,6 +431,67 @@ def classify_book(book_id: int, db: Session = Depends(get_db)):
         return {"categories": categories}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/books/{book_id}/auto-tag")
+def auto_tag_book(book_id: int, replace: bool = False, db: Session = Depends(get_db)):
+    """LLM 生成标签。replace=true 覆盖现有标签；否则合并去重。"""
+    book = db.query(Book).filter(Book.id == book_id).first()
+    if not book:
+        raise HTTPException(status_code=404, detail="书籍不存在")
+    try:
+        existing_all = _collect_all_tags(db)
+        new_tags = ai_service.suggest_tags(
+            book.title or "", book.author or "",
+            book.summary or "", book.description or "",
+            existing_tags=existing_all,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    current = json.loads(book.tags) if book.tags else []
+    merged = new_tags if replace else list(dict.fromkeys((current or []) + new_tags))
+    book.tags = json.dumps(merged, ensure_ascii=False)
+    db.commit()
+    return {"tags": merged, "added": new_tags}
+
+
+def _collect_all_tags(db: Session) -> list[str]:
+    tags: set[str] = set()
+    for (raw,) in db.query(Book.tags).filter(Book.tags.isnot(None)).all():
+        try:
+            for t in json.loads(raw or "[]"):
+                if t:
+                    tags.add(str(t))
+        except Exception:
+            pass
+    return sorted(tags)
+
+
+@app.get("/api/tags")
+def get_tags(db: Session = Depends(get_db),
+             scope: str = Query("public"),
+             x_private_token: Optional[str] = Header(default=None)):
+    q = db.query(Book)
+    unlocked = is_unlocked(x_private_token)
+    if scope == "private":
+        if not unlocked:
+            raise HTTPException(status_code=401, detail="私密书架未解锁")
+        q = q.filter(Book.is_private == True)
+    elif scope == "all":
+        if not unlocked:
+            q = q.filter((Book.is_private == False) | (Book.is_private.is_(None)))
+    else:
+        q = q.filter((Book.is_private == False) | (Book.is_private.is_(None)))
+    counts: dict[str, int] = {}
+    for b in q.all():
+        try:
+            for t in (json.loads(b.tags) if b.tags else []):
+                if not t:
+                    continue
+                counts[t] = counts.get(t, 0) + 1
+        except Exception:
+            continue
+    return [{"name": k, "count": v} for k, v in sorted(counts.items(), key=lambda x: (-x[1], x[0]))]
 
 
 @app.post("/api/books/{book_id}/embed")
@@ -651,6 +729,7 @@ def mineru_parse_book(book_id: int,
             logger.warning(f"auto-index failed: {e}")
             result["index_error"] = str(e)
 
+    book.mineru_parsed = True
     db.commit()
     return result
 
@@ -929,55 +1008,115 @@ def browse(path: str = ""):
 
 # ── Routes: Batch operations ────────────────────────────────────────────────
 
+_BATCH_ACTIONS = ("summary", "classify", "embed", "index", "auto_tag")
+
+
+def _select_batch_books(db: Session, action: str, book_ids: Optional[list[int]]) -> list[Book]:
+    query = db.query(Book)
+    if book_ids:
+        return query.filter(Book.id.in_(book_ids)).all()
+    if action == "summary":
+        return query.filter((Book.summary == None) | (Book.summary == "")).all()
+    if action == "classify":
+        return query.filter((Book.categories == None) | (Book.categories == "[]")).all()
+    if action == "embed":
+        return query.filter(Book.embedding_done == False).all()
+    if action == "auto_tag":
+        return query.filter((Book.tags == None) | (Book.tags == "[]")).all()
+    # index
+    return query.filter((Book.indexed == False) | (Book.indexed == None)).all()
+
+
+def _run_one_batch_step(action: str, book: Book, db: Session):
+    """执行单本书的批量操作，抛异常则由调用方捕获。返回可选的 summary 文本。"""
+    if action == "summary":
+        meta = _extract_meta(book.file_path)
+        book.summary = ai_service.generate_summary(book.title, book.author, meta.get("excerpt", ""))
+    elif action == "classify":
+        cats = ai_service.classify_book(
+            book.title, book.author,
+            book.description or "", book.summary or "",
+        )
+        book.categories = json.dumps(cats, ensure_ascii=False)
+    elif action == "embed":
+        cats = json.loads(book.categories) if book.categories else []
+        vector_search.add_book_embedding(
+            book.id, book.title, book.author,
+            book.summary or book.description or "", cats,
+        )
+        book.embedding_done = True
+    elif action == "index":
+        _index_one_book(book, db)
+    elif action == "auto_tag":
+        existing_all = _collect_all_tags(db)
+        new_tags = ai_service.suggest_tags(
+            book.title or "", book.author or "",
+            book.summary or "", book.description or "",
+            existing_tags=existing_all,
+        )
+        current = json.loads(book.tags) if book.tags else []
+        merged = list(dict.fromkeys((current or []) + new_tags))
+        book.tags = json.dumps(merged, ensure_ascii=False)
+
+
+@app.get("/api/batch/stream")
+async def batch_stream(action: str, book_ids: Optional[str] = None):
+    """SSE 版批量操作：按书逐条报告进度。"""
+    if action not in _BATCH_ACTIONS:
+        raise HTTPException(status_code=400, detail="invalid action")
+    ids = [int(x) for x in (book_ids or "").split(",") if x.strip()] or None
+
+    async def gen():
+        db = SessionLocal()
+        loop = asyncio.get_event_loop()
+        try:
+            books = _select_batch_books(db, action, ids)
+            total = len(books)
+            yield _sse({"type": "start", "action": action, "total": total})
+            ok, fail = 0, 0
+            for i, b in enumerate(books, 1):
+                yield _sse({"type": "begin", "i": i, "total": total,
+                            "book_id": b.id, "title": b.title})
+                try:
+                    await loop.run_in_executor(None, _run_one_batch_step, action, b, db)
+                    db.commit()
+                    ok += 1
+                    yield _sse({"type": "progress", "i": i, "total": total,
+                                "book_id": b.id, "title": b.title, "status": "ok"})
+                except Exception as e:
+                    db.rollback()
+                    fail += 1
+                    logger.exception(f"batch {action} failed for {b.id}")
+                    yield _sse({"type": "progress", "i": i, "total": total,
+                                "book_id": b.id, "title": b.title,
+                                "status": "error", "error": str(e)})
+                await asyncio.sleep(0)
+            yield _sse({"type": "done", "action": action, "ok": ok, "failed": fail, "total": total})
+        finally:
+            db.close()
+
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
 @app.post("/api/batch")
 def batch_action(req: BatchRequest, db: Session = Depends(get_db)):
     action = req.action
-    if action not in ("summary", "classify", "embed", "index"):
+    if action not in _BATCH_ACTIONS:
         raise HTTPException(status_code=400, detail="invalid action")
 
-    # Select target books
-    query = db.query(Book)
-    if req.book_ids:
-        books = query.filter(Book.id.in_(req.book_ids)).all()
-    else:
-        # default: rows missing this field
-        if action == "summary":
-            books = query.filter((Book.summary == None) | (Book.summary == "")).all()
-        elif action == "classify":
-            books = query.filter((Book.categories == None) | (Book.categories == "[]")).all()
-        elif action == "embed":
-            books = query.filter(Book.embedding_done == False).all()
-        else:  # index
-            books = query.filter((Book.indexed == False) | (Book.indexed == None)).all()
-
+    books = _select_batch_books(db, action, req.book_ids)
     success, failed, errors = 0, 0, []
     for book in books:
         try:
-            if action == "summary":
-                meta = _extract_meta(book.file_path)
-                book.summary = ai_service.generate_summary(book.title, book.author, meta.get("excerpt", ""))
-            elif action == "classify":
-                cats = ai_service.classify_book(
-                    book.title, book.author,
-                    book.description or "", book.summary or "",
-                )
-                book.categories = json.dumps(cats, ensure_ascii=False)
-            elif action == "embed":
-                cats = json.loads(book.categories) if book.categories else []
-                vector_search.add_book_embedding(
-                    book.id, book.title, book.author,
-                    book.summary or book.description or "", cats,
-                )
-                book.embedding_done = True
-            elif action == "index":
-                _index_one_book(book, db)
+            _run_one_batch_step(action, book, db)
             db.commit()
             success += 1
         except Exception as e:
+            db.rollback()
             failed += 1
             errors.append({"book_id": book.id, "title": book.title, "error": str(e)})
             logger.exception(f"batch {action} failed for book {book.id}")
-
     return {"success": success, "failed": failed, "total": len(books), "errors": errors[:10]}
 
 

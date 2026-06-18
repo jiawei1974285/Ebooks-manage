@@ -43,6 +43,7 @@ class Book(Base):
     rating = Column(Integer, default=0)  # 0 = unrated, 1~5 stars
     review = Column(Text)                 # user's free-form review/notes
     is_private = Column(Boolean, default=False)  # hidden from main shelf; require password
+    mineru_parsed = Column(Boolean, default=False)  # parsed by MinerU OCR
 
 
 def get_db():
@@ -62,6 +63,7 @@ MIGRATIONS = [
     ("rating", "ALTER TABLE books ADD COLUMN rating INTEGER DEFAULT 0"),
     ("review", "ALTER TABLE books ADD COLUMN review TEXT"),
     ("is_private", "ALTER TABLE books ADD COLUMN is_private BOOLEAN DEFAULT 0"),
+    ("mineru_parsed", "ALTER TABLE books ADD COLUMN mineru_parsed BOOLEAN DEFAULT 0"),
 ]
 
 

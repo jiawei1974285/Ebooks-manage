@@ -7,10 +7,12 @@ import {
 } from 'lucide-react'
 import {
   getBook, generateSummary, classifyBook, embedBook, updateBook, deleteBook, indexBook,
-  getCategoriesConfig, mineruParse, bookFileUrl, openBookLocal,
+  getCategoriesConfig, mineruParse, bookFileUrl, openBookLocal, autoTagBook,
+  getBooks,
 } from '../api'
 import PdfPreview from '../components/PdfPreview'
 import StarRating from '../components/StarRating'
+import { normalizeTitle, authorsCompatible } from '../utils/bookGrouping'
 
 export default function BookDetail() {
   const { id } = useParams()
@@ -23,11 +25,32 @@ export default function BookDetail() {
   const [previewing, setPreviewing] = useState(false)
   const [allCategories, setAllCategories] = useState([])
   const [addingCategory, setAddingCategory] = useState(false)
+  const [siblings, setSiblings] = useState([])  // same title/author, different format
 
   useEffect(() => {
+    setLoading(true)
     getBook(id).then(({ data }) => { setBook(data); setLoading(false) })
     getCategoriesConfig().then(({ data }) => setAllCategories(data.categories || [])).catch(() => {})
   }, [id])
+
+  // Fetch sibling versions (same title, different format) using the books API's q filter
+  useEffect(() => {
+    if (!book?.title) { setSiblings([]); return }
+    let cancelled = false
+    getBooks({ q: book.title, page_size: 50, scope: book.is_private ? 'all' : 'public' })
+      .then(({ data }) => {
+        if (cancelled) return
+        const nt = normalizeTitle(book.title)
+        const sibs = (data.books || []).filter(b =>
+          b.id !== book.id &&
+          normalizeTitle(b.title) === nt &&
+          authorsCompatible(b.author, book.author)
+        )
+        setSiblings(sibs)
+      })
+      .catch(() => setSiblings([]))
+    return () => { cancelled = true }
+  }, [book?.id, book?.title, book?.author, book?.is_private])
 
   async function run(key, fn, update) {
     setBusy(b => ({ ...b, [key]: true }))
@@ -109,6 +132,10 @@ export default function BookDetail() {
             <ActionBtn
               onClick={() => run('cls', () => classifyBook(id), d => setBook(b => ({ ...b, categories: d.categories })))}
               loading={busy.cls} icon={<Tag size={14} />} label="自动分类"
+            />
+            <ActionBtn
+              onClick={() => run('tag', () => autoTagBook(id), d => setBook(b => ({ ...b, tags: d.tags })))}
+              loading={busy.tag} icon={<Tag size={14} />} label="AI 打标签"
             />
             <ActionBtn
               onClick={() => run('emb', () => embedBook(id), () => setBook(b => ({ ...b, embedding_done: true })))}
@@ -207,7 +234,41 @@ export default function BookDetail() {
               editing={editing.language} setEditing={(v) => setEditing(e => ({ ...e, language: v }))}
               onSave={(v) => saveField('language', v)} />
             <MetaRow icon={<BookOpen size={14} />} label="页数">{book.page_count || '-'}</MetaRow>
-            <MetaRow icon={<FileText size={14} />} label="格式">{book.file_format}</MetaRow>
+            <MetaRow icon={<FileText size={14} />} label="格式">
+              <span className="inline-flex items-center gap-2 flex-wrap">
+                {siblings.length > 0 ? (
+                  <span className="inline-flex items-center gap-1">
+                    <span
+                      className="chip uppercase text-[11px]"
+                      style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}
+                      title="当前查看的版本"
+                    >
+                      {book.file_format}
+                    </span>
+                    {siblings.map(s => (
+                      <button
+                        key={s.id}
+                        onClick={() => navigate(`/books/${s.id}`)}
+                        className="chip-gray uppercase text-[11px] hover:opacity-80"
+                        title={`切换到 ${s.file_format} 版本`}
+                      >
+                        {s.file_format}
+                      </button>
+                    ))}
+                    <span className="text-[10px] text-faint ml-1">
+                      （共 {siblings.length + 1} 种格式）
+                    </span>
+                  </span>
+                ) : (
+                  <span>{book.file_format}</span>
+                )}
+                {book.mineru_parsed && (
+                  <span className="chip inline-flex items-center gap-0.5" title="已用 MinerU OCR 解析">
+                    <ScanLine size={10} /> MinerU
+                  </span>
+                )}
+              </span>
+            </MetaRow>
             <MetaRow icon={<FileText size={14} />} label="路径">
               <div className="flex flex-col gap-1 min-w-0">
                 <span className="text-xs text-faint break-all">{book.file_path}</span>
